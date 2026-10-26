@@ -45,6 +45,7 @@ import kotlinx.coroutines.launch
 enum class PlayerPhase { Tuning, Playing, Failed }
 
 /** Observable state the Compose overlay renders. */
+@OptIn(UnstableApi::class)
 class PlayerUiState {
     var channel by mutableStateOf<Channel?>(null)
     var queue by mutableStateOf<List<Channel>>(emptyList())
