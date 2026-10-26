@@ -53,6 +53,12 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.data.Channel
+import com.kwamepeace.kinowave.data.Movie
+import com.kwamepeace.kinowave.ui.screens.MovieGridScreen
+import com.kwamepeace.kinowave.ui.screens.MovieSheet
+import com.kwamepeace.kinowave.ui.screens.ProfileEditorSheet
+import com.kwamepeace.kinowave.ui.screens.ProfilePickerScreen
+import androidx.compose.runtime.key
 import com.kwamepeace.kinowave.ui.Actions
 import com.kwamepeace.kinowave.ui.AppViewModel
 import com.kwamepeace.kinowave.ui.Route
@@ -85,11 +91,44 @@ class MainActivity : ComponentActivity() {
                 Box(Modifier.fillMaxSize().background(Kino.Ink)) {
                     val state by vm.catalog.collectAsStateWithLifecycle()
                     when (val s = state) {
-                        is CatalogState.Ready -> KinoShell(vm, s.index)
+                        is CatalogState.Ready -> ProfileGate(vm)
                         is CatalogState.Failed -> LoadFailed(s.message, vm::retryLoad)
                         CatalogState.Loading -> CircularProgressIndicator(Modifier.align(Alignment.Center), color = Kino.Pink)
                     }
                 }
+            }
+        }
+    }
+}
+
+/** "Who's watching?" until a profile is picked, then the app for that profile. */
+@Composable
+private fun ProfileGate(vm: AppViewModel) {
+    val profile by vm.activeProfile.collectAsStateWithLifecycle()
+    val profiles by vm.profiles.profiles.collectAsStateWithLifecycle()
+    val index by vm.profileIndex.collectAsStateWithLifecycle()
+
+    AnimatedContent(
+        targetState = profile,
+        contentKey = { it?.id },
+        transitionSpec = { (fadeIn(tween(300)) + scaleIn(tween(320), initialScale = 1.04f)) togetherWith fadeOut(tween(160)) },
+        label = "profile",
+    ) { active ->
+        val current = index
+        if (active == null) {
+            ProfilePickerScreen(
+                profiles = profiles,
+                onPick = vm.profiles::select,
+                onSave = vm.profiles::save,
+                onDelete = vm.profiles::delete,
+                newProfile = vm.profiles::newProfile,
+            )
+        } else if (current != null && current.isKids == active.kids) {
+            // Keyed by profile so tabs, scroll positions and lists reset when switching
+            key(active.id) { KinoShell(vm, current) }
+        } else {
+            Box(Modifier.fillMaxSize()) {
+                CircularProgressIndicator(Modifier.align(Alignment.Center), color = Kino.Pink)
             }
         }
     }
@@ -101,9 +140,14 @@ private fun KinoShell(vm: AppViewModel, index: CatalogIndex) {
     var tab by rememberSaveable { mutableStateOf(Tab.Home) }
     val stack = remember { mutableStateListOf<Route>() }
     var sheetChannel by remember { mutableStateOf<Channel?>(null) }
+    var sheetMovie by remember { mutableStateOf<Movie?>(null) }
     var showCategories by remember { mutableStateOf(false) }
     var focusSearch by remember { mutableStateOf(false) }
+    var editingProfile by remember { mutableStateOf(false) }
     val myList by vm.prefs.myList.collectAsStateWithLifecycle()
+    val progress by vm.prefs.progress.collectAsStateWithLifecycle()
+    val profile by vm.activeProfile.collectAsStateWithLifecycle()
+    val progressOf = { m: Movie -> progress[m.id]?.let { (pos, dur) -> if (dur > 0) pos.toFloat() / dur else null } }
 
     val actions = remember(vm, context) {
         Actions(
@@ -111,6 +155,8 @@ private fun KinoShell(vm: AppViewModel, index: CatalogIndex) {
             play = { ch, queue -> vm.play(context, ch, queue) },
             push = { route -> showCategories = false; stack.add(route) },
             toggleList = { vm.toggleMyList(it) },
+            openMovie = { sheetMovie = it },
+            playMovie = { vm.playMovie(context, it) },
         )
     }
 
@@ -135,10 +181,15 @@ private fun KinoShell(vm: AppViewModel, index: CatalogIndex) {
                     vm, index, actions,
                     onSearch = { focusSearch = true; tab = Tab.Discover },
                     onCategories = { showCategories = true },
+                    onProfile = { vm.profiles.clearActive() },
                 )
                 Tab.Discover -> DiscoverScreen(index, actions, vm.regionCode, focusSearch, vm::visible)
                 Tab.Live -> LiveScreen(index, actions, vm.regionCode, vm::visible)
-                Tab.MyList -> MyListScreen(vm, index, actions)
+                Tab.MyList -> MyListScreen(
+                    vm, index, actions,
+                    onSwitchProfile = { vm.profiles.clearActive() },
+                    onEditProfile = { editingProfile = true },
+                )
             }
         }
 
@@ -154,8 +205,11 @@ private fun KinoShell(vm: AppViewModel, index: CatalogIndex) {
             },
             label = "routes",
         ) { route ->
-            if (route != null) {
-                CollectionScreen(route, index, actions, vm::visible, onBack = { stack.removeAt(stack.lastIndex) })
+            val back = { if (stack.isNotEmpty()) stack.removeAt(stack.lastIndex) }
+            when (route) {
+                null -> Unit
+                is Route.MovieRowRoute -> MovieGridScreen(route.id, index, actions, progressOf, onBack = { back() })
+                else -> CollectionScreen(route, index, actions, vm::visible, onBack = { back() })
             }
         }
 
@@ -189,6 +243,31 @@ private fun KinoShell(vm: AppViewModel, index: CatalogIndex) {
                 onPlay = { c, stream -> vm.play(context, c, index.similarTo(c, 60), stream) },
                 onToggleList = { vm.toggleMyList(ch) },
                 onOpenOther = { sheetChannel = it },
+            )
+        }
+
+        sheetMovie?.let { m ->
+            MovieSheet(
+                movie = m,
+                index = index,
+                saved = m.listKey in myList,
+                progress = progressOf(m),
+                onDismiss = { sheetMovie = null },
+                onPlay = { fromStart -> vm.playMovie(context, m, fromStart) },
+                onToggleList = { vm.toggleMyList(m) },
+                onOpenOther = { sheetMovie = it },
+            )
+        }
+
+        val active = profile
+        if (editingProfile && active != null) {
+            ProfileEditorSheet(
+                profile = active,
+                isNew = false,
+                canDelete = false,
+                onDismiss = { editingProfile = false },
+                onSave = { vm.profiles.save(it); editingProfile = false },
+                onDelete = {},
             )
         }
     }

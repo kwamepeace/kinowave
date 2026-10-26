@@ -11,11 +11,11 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
@@ -24,9 +24,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,26 +35,40 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kwamepeace.kinowave.BuildConfig
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.ui.Actions
 import com.kwamepeace.kinowave.ui.AppViewModel
+import com.kwamepeace.kinowave.ui.components.MovieWideCard
+import com.kwamepeace.kinowave.ui.components.MoviePoster
 import com.kwamepeace.kinowave.ui.components.PosterCard
+import com.kwamepeace.kinowave.ui.components.Watchable
 import com.kwamepeace.kinowave.ui.components.WideCard
 import com.kwamepeace.kinowave.ui.components.bouncyClick
+import com.kwamepeace.kinowave.ui.resolve
 import com.kwamepeace.kinowave.ui.theme.Kino
 
 @Composable
-fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
+fun MyListScreen(
+    vm: AppViewModel,
+    index: CatalogIndex,
+    actions: Actions,
+    onSwitchProfile: () -> Unit,
+    onEditProfile: () -> Unit,
+) {
+    val profile by vm.activeProfile.collectAsStateWithLifecycle()
     val myList by vm.prefs.myList.collectAsStateWithLifecycle()
     val recents by vm.prefs.recents.collectAsStateWithLifecycle()
+    val progress by vm.prefs.progress.collectAsStateWithLifecycle()
     val hide by vm.prefs.hideUnreliable.collectAsStateWithLifecycle()
+    val dataSaver by vm.settings.dataSaver.collectAsStateWithLifecycle()
+    val saverMobileOnly by vm.settings.saverOnMobileOnly.collectAsStateWithLifecycle()
+    val autoplay by vm.settings.autoplayNext.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val context = LocalContext.current
-    val saved = myList.mapNotNull(index.byId::get)
-    val watched = recents.mapNotNull(index.byId::get)
+    val saved = index.resolve(myList, progress)
+    val watched = index.resolve(recents, progress)
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(108.dp),
@@ -66,29 +79,39 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
     ) {
         line("header") {
             Row(Modifier.statusBarsPadding().padding(top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    Modifier.size(56.dp).clip(CircleShape).background(Kino.BrandGradient),
-                    contentAlignment = Alignment.Center,
-                ) { Text("😎", fontSize = 28.sp) }
+                profile?.let { ProfileAvatar(it, 60.dp, Modifier.bouncyClick(onClick = onEditProfile)) }
                 Spacer(Modifier.width(14.dp))
-                Column {
-                    Text("My Space", style = MaterialTheme.typography.headlineLarge, color = Kino.TextHigh)
+                Column(Modifier.weight(1f)) {
+                    Text(profile?.name ?: "My Space", style = MaterialTheme.typography.headlineLarge, color = Kino.TextHigh)
                     Text(
-                        "${saved.size} saved · ${watched.size} watched",
+                        "${saved.size} saved · ${watched.size} watched" + if (index.isKids) " · Kids" else "",
                         style = MaterialTheme.typography.bodyMedium,
                         color = Kino.TextLow,
                     )
                 }
+                Text(
+                    "Switch",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = Kino.TextHigh,
+                    modifier = Modifier
+                        .bouncyClick(onClick = onSwitchProfile)
+                        .clip(RoundedCornerShape(50))
+                        .background(Color(0x14FFFFFF))
+                        .border(1.dp, Kino.Stroke, RoundedCornerShape(50))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                )
             }
         }
 
         if (watched.isNotEmpty()) {
             line("recents-title") { Title("Recently watched", action = "Clear") { vm.prefs.clearRecents() } }
             line("recents") {
-                androidx.compose.foundation.lazy.LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     items(watched.size) { i ->
-                        val ch = watched[i]
-                        WideCard(ch, onLongClick = { actions.open(ch) }, onClick = { actions.play(ch, watched) })
+                        when (val item = watched[i]) {
+                            is Watchable.Live -> WideCard(item.channel, onLongClick = { actions.openItem(item) }, onClick = { actions.playItem(item, watched) })
+                            is Watchable.Film -> MovieWideCard(item.movie, item.progress, onLongClick = { actions.openItem(item) }, onClick = { actions.playItem(item, watched) })
+                        }
                     }
                 }
             }
@@ -98,7 +121,7 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
         if (saved.isEmpty()) {
             line("empty") {
                 Text(
-                    "Nothing saved yet. Tap + on any channel to keep it here. ✨",
+                    "Nothing saved yet. Tap + on any channel or movie to keep it here. ✨",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Kino.TextLow,
                     modifier = Modifier
@@ -109,49 +132,69 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
                 )
             }
         } else {
-            items(saved, key = { it.id }) { ch ->
-                PosterCard(
-                    ch,
-                    width = null,
-                    flag = index.countryFlag(ch.country),
-                    modifier = Modifier.animateItem(),
-                    onLongClick = { actions.play(ch, saved) },
-                    onClick = { actions.open(ch) },
+            items(saved, key = { it.key }) { item ->
+                when (item) {
+                    is Watchable.Live -> PosterCard(
+                        item.channel,
+                        width = null,
+                        flag = index.countryFlag(item.channel.country),
+                        modifier = Modifier.animateItem(),
+                        onLongClick = { actions.playItem(item, saved) },
+                        onClick = { actions.openItem(item) },
+                    )
+                    is Watchable.Film -> MoviePoster(
+                        item.movie,
+                        width = null,
+                        progress = item.progress,
+                        modifier = Modifier.animateItem(),
+                        onLongClick = { actions.playItem(item, saved) },
+                        onClick = { actions.openItem(item) },
+                    )
+                }
+            }
+        }
+
+        line("playback-title") { Title("Playback") }
+        line("playback") {
+            SettingsCard {
+                ToggleRow(
+                    "Data saver",
+                    "Cap video around 480p, use lighter movie files and skip heavy effects.",
+                    dataSaver,
+                    vm.settings::setDataSaver,
+                )
+                if (dataSaver) {
+                    ToggleRow(
+                        "Only on mobile data",
+                        "Full quality on Wi-Fi, data saver on mobile data.",
+                        saverMobileOnly,
+                        vm.settings::setSaverOnMobileOnly,
+                    )
+                }
+                HorizontalDivider(color = Kino.Stroke)
+                ToggleRow(
+                    "Autoplay next channel",
+                    "If a channel won't load, hop to the next one after a few seconds.",
+                    autoplay,
+                    vm.settings::setAutoplayNext,
+                )
+                ToggleRow(
+                    "Hide unreliable channels",
+                    "Skip channels that are geo-locked or only on air part-time.",
+                    hide,
+                    vm.prefs::setHideUnreliable,
                 )
             }
         }
 
-        line("settings-title") { Title("Settings") }
-        line("settings") {
-            Column(
-                Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .background(Kino.Surface)
-                    .border(1.dp, Kino.Stroke, RoundedCornerShape(22.dp))
-                    .padding(18.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
+        line("about-title") { Title("Library") }
+        line("about") {
+            SettingsCard {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text("Hide unreliable channels", style = MaterialTheme.typography.titleMedium, color = Kino.TextHigh)
+                        Text("Channels and movies", style = MaterialTheme.typography.titleMedium, color = Kino.TextHigh)
                         Text(
-                            "Skip channels that are geo-locked or only on air part-time.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = Kino.TextLow,
-                        )
-                    }
-                    Switch(
-                        checked = hide,
-                        onCheckedChange = vm.prefs::setHideUnreliable,
-                        colors = SwitchDefaults.colors(checkedTrackColor = Kino.Pink, checkedThumbColor = Color.White),
-                    )
-                }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Channel list", style = MaterialTheme.typography.titleMedium, color = Kino.TextHigh)
-                        Text(
-                            "${index.channels.size} channels · updated ${index.catalog.updated.take(10)}",
+                            "${index.channels.size} channels · ${index.movies.size} movies · updated ${index.catalog.updated.take(10)}",
                             style = MaterialTheme.typography.bodySmall,
                             color = Kino.TextLow,
                         )
@@ -162,7 +205,7 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
                                 vm.refreshCatalog { updated ->
                                     Toast.makeText(
                                         context,
-                                        if (updated) "Channel list updated 🎉" else "You're already up to date",
+                                        if (updated) "Library updated 🎉" else "You're already up to date",
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                 }
@@ -177,8 +220,9 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
                     }
                 }
                 Text(
-                    "KinoWave ${BuildConfig.VERSION_NAME} · Streams come from the open-source iptv-org project " +
-                        "(github.com/iptv-org/iptv). KinoWave doesn't host or own any of the channels.",
+                    "KinoWave ${BuildConfig.VERSION_NAME} · Live channels come from the open-source iptv-org project " +
+                        "(github.com/iptv-org/iptv); movies come from the Internet Archive's public-domain collection. " +
+                        "KinoWave doesn't host or own any of the content.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Kino.TextLow,
                 )
@@ -189,6 +233,19 @@ fun MyListScreen(vm: AppViewModel, index: CatalogIndex, actions: Actions) {
 
 private fun LazyGridScope.line(key: String, content: @Composable () -> Unit) {
     item(key = key, span = { GridItemSpan(maxLineSpan) }) { content() }
+}
+
+@Composable
+private fun SettingsCard(content: @Composable () -> Unit) {
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .background(Kino.Surface)
+            .border(1.dp, Kino.Stroke, RoundedCornerShape(22.dp))
+            .padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) { content() }
 }
 
 @Composable
@@ -205,3 +262,4 @@ private fun Title(text: String, action: String? = null, onAction: () -> Unit = {
         }
     }
 }
+

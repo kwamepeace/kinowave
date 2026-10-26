@@ -43,6 +43,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.data.Channel
+import com.kwamepeace.kinowave.data.Movie
+import com.kwamepeace.kinowave.ui.components.MoviePoster
 import com.kwamepeace.kinowave.data.categoryLabel
 import com.kwamepeace.kinowave.ui.Actions
 import com.kwamepeace.kinowave.ui.Route
@@ -78,6 +80,8 @@ private fun specFor(route: Route, index: CatalogIndex): ListSpec = when (route) 
     is Route.CategoryRoute -> ListSpec(
         categoryLabel(route.id), "📺", null, seedColors(route.id), index.byCategory(route.id),
     )
+    // Movie rows have their own screen (MovieGridScreen)
+    is Route.MovieRowRoute -> ListSpec("", "", null, seedColors(route.id), emptyList())
 }
 
 /** Full grid for a collection, country, language or category, with category sub-filters. */
@@ -176,6 +180,72 @@ fun CollectionScreen(
                 modifier = Modifier.animateItem(),
                 onLongClick = { actions.play(ch, shown) },
                 onClick = { actions.open(ch) },
+            )
+        }
+    }
+}
+
+/** Full poster grid for one on-demand movie row. */
+@Composable
+fun MovieGridScreen(
+    rowId: String,
+    index: CatalogIndex,
+    actions: Actions,
+    progressOf: (Movie) -> Float?,
+    onBack: () -> Unit,
+) {
+    val (row, movies) = index.movieRowById[rowId] ?: return
+    val colors = collectionColors(row.colors, row.id)
+
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(108.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 130.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier.fillMaxSize().background(Kino.Ink),
+    ) {
+        item(key = "header", span = { GridItemSpan(maxLineSpan) }) {
+            Box(
+                Modifier
+                    .bleed(16.dp)
+                    .background(Brush.verticalGradient(listOf(colors.first().copy(alpha = 0.85f), colors.last().copy(alpha = 0.35f), Kino.Ink)))
+                    .statusBarsPadding()
+                    .padding(horizontal = 20.dp)
+                    .padding(top = 8.dp, bottom = 18.dp),
+            ) {
+                Column {
+                    Box(
+                        Modifier.size(44.dp).bouncyClick(onClick = onBack).clip(CircleShape).background(Color(0x33000000)),
+                        contentAlignment = Alignment.Center,
+                    ) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back", tint = Color.White) }
+                    Spacer(Modifier.height(28.dp))
+                    Text(row.emoji, fontSize = 44.sp)
+                    Text(row.title, style = MaterialTheme.typography.displayMedium, color = Color.White)
+                    Text("${movies.size} free movies · on demand", style = MaterialTheme.typography.bodyMedium, color = Color(0xD9FFFFFF))
+                    Spacer(Modifier.height(16.dp))
+                    Row(
+                        Modifier
+                            .bouncyClick { movies.randomOrNull()?.let(actions.playMovie) }
+                            .clip(CircleShape)
+                            .background(Color.White)
+                            .padding(horizontal = 18.dp, vertical = 11.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(Icons.Rounded.Shuffle, null, tint = Color.Black, modifier = Modifier.size(20.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Surprise me", style = MaterialTheme.typography.labelLarge, color = Color.Black)
+                    }
+                }
+            }
+        }
+        items(movies, key = { it.id }) { m ->
+            MoviePoster(
+                m,
+                width = null,
+                progress = progressOf(m),
+                modifier = Modifier.animateItem(),
+                onLongClick = { actions.playMovie(m) },
+                onClick = { actions.openMovie(m) },
             )
         }
     }

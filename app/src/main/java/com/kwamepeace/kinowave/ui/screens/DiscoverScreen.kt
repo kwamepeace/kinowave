@@ -56,6 +56,15 @@ import androidx.compose.ui.unit.sp
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.data.Channel
 import com.kwamepeace.kinowave.data.Collection
+import com.kwamepeace.kinowave.data.Movie
+import com.kwamepeace.kinowave.data.MovieRow
+import com.kwamepeace.kinowave.ui.components.GradientScrim
+import com.kwamepeace.kinowave.ui.components.MoviePoster
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.kwamepeace.kinowave.data.categoryLabel
 import com.kwamepeace.kinowave.ui.Actions
 import com.kwamepeace.kinowave.ui.Route
@@ -87,7 +96,7 @@ fun DiscoverScreen(
     val results by produceState(SearchResults(), query, index) {
         delay(140)
         value = withContext(Dispatchers.Default) {
-            SearchResults(index.matchingCollections(query), visible(index.search(query)))
+            SearchResults(index.matchingCollections(query), visible(index.search(query)), index.searchMovies(query))
         }
     }
 
@@ -126,6 +135,19 @@ fun DiscoverScreen(
                         }
                     }
                 }
+                if (results.movies.isNotEmpty()) {
+                    fullLine("movies") {
+                        Column {
+                            Text("Movies", style = MaterialTheme.typography.headlineSmall, color = Kino.TextHigh)
+                            Spacer(Modifier.height(10.dp))
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(results.movies, key = { it.id }) { m ->
+                                    MoviePoster(m, width = 112.dp, onLongClick = { actions.playMovie(m) }) { actions.openMovie(m) }
+                                }
+                            }
+                        }
+                    }
+                }
                 fullLine("count") {
                     Text(
                         if (results.channels.isEmpty()) "No channels match \"$query\" yet. Try a country, language or genre."
@@ -151,6 +173,7 @@ fun DiscoverScreen(
 private data class SearchResults(
     val collections: List<Pair<Collection, List<Channel>>> = emptyList(),
     val channels: List<Channel> = emptyList(),
+    val movies: List<Movie> = emptyList(),
 )
 
 private fun LazyGridScope.fullLine(key: String, content: @Composable () -> Unit) {
@@ -177,6 +200,20 @@ private fun LazyGridScope.browseContent(
                     VibeTile(col, list.size, Modifier.weight(1f)) { actions.push(Route.CollectionRoute(col.id)) }
                 }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+
+    if (index.movieRows.isNotEmpty()) {
+        fullLine("movies-title") { BrowseTitle("Free movies on demand") }
+        index.movieRows.chunked(2).forEachIndexed { i, pair ->
+            fullLine("movie-vibes-$i") {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    pair.forEach { (row, list) ->
+                        MovieVibeTile(row, list, Modifier.weight(1f)) { actions.push(Route.MovieRowRoute(row.id)) }
+                    }
+                    if (pair.size == 1) Spacer(Modifier.weight(1f))
+                }
             }
         }
     }
@@ -237,6 +274,40 @@ private fun VibeTile(col: Collection, count: Int, modifier: Modifier, onClick: (
         Column(Modifier.align(Alignment.BottomStart)) {
             Text(col.title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 2)
             Text("$count channels", style = MaterialTheme.typography.labelMedium, color = Color(0xCCFFFFFF))
+        }
+    }
+}
+
+/** Movie row tile: the row's gradient with three posters fanned out. */
+@Composable
+private fun MovieVibeTile(row: MovieRow, movies: List<Movie>, modifier: Modifier, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(22.dp)
+    Box(
+        modifier
+            .aspectRatio(1.55f)
+            .bouncyClick(onClick = onClick)
+            .clip(shape)
+            .background(Brush.linearGradient(collectionColors(row.colors, row.id)))
+            .border(1.dp, Color(0x26FFFFFF), shape),
+    ) {
+        movies.take(3).forEachIndexed { i, m ->
+            AsyncImage(
+                model = m.poster ?: m.still,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .offset(x = (-10 - i * 26).dp)
+                    .graphicsLayer { rotationZ = (i - 1) * 8f }
+                    .fillMaxHeight(0.78f)
+                    .aspectRatio(0.68f)
+                    .clip(RoundedCornerShape(10.dp)),
+            )
+        }
+        GradientScrim(Modifier.fillMaxSize(), listOf(Color(0x99000000), Color.Transparent))
+        Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+            Text(row.emoji, fontSize = 22.sp)
+            Text(row.title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 2)
         }
     }
 }

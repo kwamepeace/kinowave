@@ -73,7 +73,16 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import com.kwamepeace.kinowave.data.Movie
 import com.kwamepeace.kinowave.data.qualityBadge
+import androidx.compose.material.icons.rounded.Bedtime
+import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.rounded.Replay10
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.ui.layout.ContentScale
+import coil3.compose.AsyncImage
 import com.kwamepeace.kinowave.ui.components.ChannelLogo
 import com.kwamepeace.kinowave.ui.components.GradientScrim
 import com.kwamepeace.kinowave.ui.components.LivePill
@@ -98,11 +107,14 @@ fun PlayerScreen(
     onRetry: () -> Unit,
     onToggleResize: () -> Unit,
     onPip: () -> Unit,
+    onCycleSleep: () -> Unit,
+    onCancelAutoNext: () -> Unit,
 ) {
     var controlsVisible by remember { mutableStateOf(true) }
     var interactionTick by remember { mutableIntStateOf(0) }
     val tick = rememberTick()
     val channel = state.channel
+    val movie = state.movie
 
     // Auto-hide controls a few seconds after the last interaction while playing
     LaunchedEffect(controlsVisible, interactionTick, state.phase) {
@@ -157,8 +169,8 @@ fun PlayerScreen(
         if (state.inPip) return@Box
 
         // Tuning / failure overlays
-        if (channel != null && state.phase != PlayerPhase.Playing) {
-            StatusOverlay(state, onRetry = onRetry, onNextSource = onNextSource, onNextChannel = onNextChannel)
+        if ((channel != null || movie != null) && state.phase != PlayerPhase.Playing) {
+            StatusOverlay(state, onRetry = onRetry, onNextSource = onNextSource, onNextChannel = onNextChannel, onCancelAutoNext = onCancelAutoNext)
         }
 
         AnimatedVisibility(
@@ -202,9 +214,31 @@ fun PlayerScreen(
                             }
                             Text(sourceLabel, style = MaterialTheme.typography.bodySmall, color = Kino.TextMid)
                         }
+                    } else if (movie != null) {
+                        AsyncImage(
+                            model = movie.poster ?: movie.still,
+                            contentDescription = null,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.size(width = 30.dp, height = 44.dp).clip(RoundedCornerShape(6.dp)),
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(movie.title, style = MaterialTheme.typography.titleLarge, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                listOfNotNull(movie.year?.toString(), movie.runtimeLabel, "On demand").joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Kino.TextMid,
+                            )
+                        }
                     } else {
                         Spacer(Modifier.weight(1f))
                     }
+                    if (state.dataSaver) {
+                        Pill("DATA SAVER", background = Color(0x33C8FF2E), color = Kino.Lime)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    SleepButton(state.sleepAt) { poke(); onCycleSleep() }
+                    Spacer(Modifier.width(8.dp))
                     if (channel != null && channel.streams.size > 1) {
                         GlassButton(Icons.Rounded.Dns, "Switch server") { poke(); onNextSource() }
                         Spacer(Modifier.width(8.dp))
@@ -220,7 +254,8 @@ fun PlayerScreen(
                     horizontalArrangement = Arrangement.spacedBy(28.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    GlassButton(Icons.Rounded.KeyboardArrowUp, "Previous channel", size = 52) { poke(); onPrevChannel() }
+                    if (movie != null) GlassButton(Icons.Rounded.Replay10, "Back 10 seconds", size = 52) { poke(); player.seekBack() }
+                    else GlassButton(Icons.Rounded.KeyboardArrowUp, "Previous channel", size = 52) { poke(); onPrevChannel() }
                     Box(
                         Modifier
                             .size(76.dp)
@@ -236,7 +271,12 @@ fun PlayerScreen(
                             modifier = Modifier.size(40.dp),
                         )
                     }
-                    GlassButton(Icons.Rounded.KeyboardArrowDown, "Next channel", size = 52) { poke(); onNextChannel() }
+                    if (movie != null) GlassButton(Icons.Rounded.Forward10, "Forward 10 seconds", size = 52) { poke(); player.seekForward() }
+                    else GlassButton(Icons.Rounded.KeyboardArrowDown, "Next channel", size = 52) { poke(); onNextChannel() }
+                }
+
+                if (movie != null) {
+                    MovieSeekBar(player, Modifier.align(Alignment.BottomCenter), onInteract = { poke() })
                 }
 
                 // Channel strip for quick zapping
@@ -284,13 +324,93 @@ private fun ChannelStrip(state: PlayerUiState, modifier: Modifier, onPick: (Int)
     }
 }
 
+/** Scrubber with elapsed / remaining time for on-demand films. */
+@Composable
+private fun MovieSeekBar(player: ExoPlayer, modifier: Modifier, onInteract: () -> Unit) {
+    var position by remember { mutableLongStateOf(0L) }
+    var duration by remember { mutableLongStateOf(0L) }
+    var scrubbing by remember { mutableStateOf<Float?>(null) }
+    LaunchedEffect(player) {
+        while (true) {
+            if (scrubbing == null) position = player.currentPosition
+            duration = player.duration.coerceAtLeast(0L)
+            delay(500)
+        }
+    }
+    val fraction = scrubbing ?: if (duration > 0) position.toFloat() / duration else 0f
+    Column(modifier.fillMaxWidth().safeDrawingPadding().padding(horizontal = 24.dp, vertical = 12.dp)) {
+        Slider(
+            value = fraction.coerceIn(0f, 1f),
+            onValueChange = { scrubbing = it; onInteract() },
+            onValueChangeFinished = {
+                scrubbing?.let { player.seekTo((it * duration).toLong()) }
+                scrubbing = null
+            },
+            colors = SliderDefaults.colors(
+                thumbColor = Color.White,
+                activeTrackColor = Kino.Pink,
+                inactiveTrackColor = Color(0x40FFFFFF),
+            ),
+        )
+        Row(Modifier.fillMaxWidth()) {
+            Text(formatTime((fraction * duration).toLong()), style = MaterialTheme.typography.labelMedium, color = Color.White)
+            Spacer(Modifier.weight(1f))
+            Text("-" + formatTime((duration - fraction * duration).toLong().coerceAtLeast(0L)), style = MaterialTheme.typography.labelMedium, color = Kino.TextMid)
+        }
+    }
+}
+
+private fun formatTime(ms: Long): String {
+    val total = ms / 1000
+    val h = total / 3600
+    val m = (total % 3600) / 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
+}
+
+/** Moon button that cycles the sleep timer and shows the minutes left. */
+@Composable
+private fun SleepButton(sleepAt: Long, onClick: () -> Unit) {
+    var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(sleepAt) {
+        while (sleepAt > 0) {
+            now = System.currentTimeMillis()
+            delay(15_000)
+        }
+    }
+    if (sleepAt == 0L) {
+        GlassButton(Icons.Rounded.Bedtime, "Sleep timer", onClick = onClick)
+    } else {
+        val minutes = ((sleepAt - now) / 60_000 + 1).coerceAtLeast(1)
+        Row(
+            Modifier
+                .height(44.dp)
+                .bouncyClick(onClick = onClick)
+                .clip(CircleShape)
+                .background(Kino.BrandGradientH)
+                .padding(horizontal = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(Icons.Rounded.Bedtime, "Sleep timer", tint = Color.White, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(6.dp))
+            Text("${minutes}m", style = MaterialTheme.typography.labelLarge, color = Color.White)
+        }
+    }
+}
+
 @Composable
 private fun StatusOverlay(
     state: PlayerUiState,
     onRetry: () -> Unit,
     onNextSource: () -> Unit,
     onNextChannel: () -> Unit,
+    onCancelAutoNext: () -> Unit,
 ) {
+    val movie = state.movie
+    if (movie != null) {
+        MovieStatus(movie, state.phase, onRetry)
+        return
+    }
     val channel = state.channel ?: return
     Box(
         Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color(0xFF1A1030), Color.Black))),
@@ -319,12 +439,53 @@ private fun StatusOverlay(
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(horizontal = 32.dp),
                 )
+                if (state.autoNextIn > 0) {
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        "Next channel in ${state.autoNextIn}… tap to stay",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Kino.Lime,
+                        modifier = Modifier.bouncyClick(onClick = onCancelAutoNext).padding(6.dp),
+                    )
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Try again", Icons.Rounded.Refresh, filled = false, onClick = onRetry)
                     if (channel.streams.size > 1) PillButton("Other server", Icons.Rounded.Dns, filled = false, onClick = onNextSource)
                     PillButton("Next channel", Icons.Rounded.SkipNext, filled = true, onClick = onNextChannel)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MovieStatus(movie: Movie, phase: PlayerPhase, onRetry: () -> Unit) {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        AsyncImage(
+            model = movie.still ?: movie.poster,
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.35f },
+        )
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Box(contentAlignment = Alignment.Center) {
+                if (phase == PlayerPhase.Tuning) SpinnerRing()
+                AsyncImage(
+                    model = movie.poster ?: movie.still,
+                    contentDescription = movie.title,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.size(width = 64.dp, height = 94.dp).clip(RoundedCornerShape(12.dp)),
+                )
+            }
+            Spacer(Modifier.height(18.dp))
+            if (phase == PlayerPhase.Tuning) {
+                Text("Loading ${movie.title}…", style = MaterialTheme.typography.titleLarge, color = Color.White, textAlign = TextAlign.Center)
+            } else {
+                Text("This movie didn't load", style = MaterialTheme.typography.titleLarge, color = Color.White)
+                Text("Check your connection and try again.", style = MaterialTheme.typography.bodySmall, color = Kino.TextLow)
+                Spacer(Modifier.height(16.dp))
+                PillButton("Try again", Icons.Rounded.Refresh, filled = true, onClick = onRetry)
             }
         }
     }

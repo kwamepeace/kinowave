@@ -11,6 +11,7 @@ import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.core.view.WindowCompat
@@ -21,6 +22,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -28,18 +30,21 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
 import androidx.media3.exoplayer.upstream.DefaultLoadErrorHandlingPolicy
 import androidx.media3.ui.AspectRatioFrameLayout
 import com.kwamepeace.kinowave.CatalogState
 import com.kwamepeace.kinowave.KinoApp
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.data.Channel
+import com.kwamepeace.kinowave.data.Movie
 import com.kwamepeace.kinowave.data.Stream
 import com.kwamepeace.kinowave.ui.theme.KinoTheme
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class PlayerPhase { Tuning, Playing, Failed }
@@ -48,6 +53,8 @@ enum class PlayerPhase { Tuning, Playing, Failed }
 @OptIn(UnstableApi::class)
 class PlayerUiState {
     var channel by mutableStateOf<Channel?>(null)
+    /** Set when playing an on-demand film instead of a live channel. */
+    var movie by mutableStateOf<Movie?>(null)
     var queue by mutableStateOf<List<Channel>>(emptyList())
     var queueIndex by mutableIntStateOf(0)
     var streamIndex by mutableIntStateOf(0)
@@ -56,6 +63,11 @@ class PlayerUiState {
     var inPip by mutableStateOf(false)
     var resizeMode by mutableIntStateOf(AspectRatioFrameLayout.RESIZE_MODE_FIT)
     var index by mutableStateOf<CatalogIndex?>(null)
+    var dataSaver by mutableStateOf(false)
+    /** Wall-clock time the sleep timer fires, or 0 when off. */
+    var sleepAt by mutableLongStateOf(0L)
+    /** Seconds until autoplay moves to the next channel, or 0 when not counting down. */
+    var autoNextIn by mutableIntStateOf(0)
 }
 
 @OptIn(UnstableApi::class)
@@ -63,22 +75,30 @@ class PlayerActivity : ComponentActivity() {
 
     private val app get() = application as KinoApp
     private lateinit var player: ExoPlayer
+    private lateinit var trackSelector: DefaultTrackSelector
     private val ui = PlayerUiState()
 
     /** Whether the current stream is being retried with a forced HLS mime type. */
     private var forcedHls = false
     private var watchdog: Job? = null
+    private var autoNextJob: Job? = null
+    private var sleepJob: Job? = null
+    private var progressJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         goImmersive()
 
+        trackSelector = DefaultTrackSelector(this)
         player = ExoPlayer.Builder(this)
+            .setTrackSelector(trackSelector)
             .setAudioAttributes(
                 AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
                 /* handleAudioFocus = */ true,
             )
             .setHandleAudioBecomingNoisy(true)
+            .setSeekBackIncrementMs(10_000)
+            .setSeekForwardIncrementMs(10_000)
             .build()
             .apply { addListener(listener) }
 
@@ -93,7 +113,7 @@ class PlayerActivity : ComponentActivity() {
                     onPrevChannel = { zap(-1) },
                     onPickChannel = { i -> tuneQueue(i, 0) },
                     onNextSource = { nextSource(userInitiated = true) },
-                    onRetry = { tuneQueue(ui.queueIndex, 0) },
+                    onRetry = { retry() },
                     onToggleResize = {
                         ui.resizeMode = if (ui.resizeMode == AspectRatioFrameLayout.RESIZE_MODE_FIT) {
                             AspectRatioFrameLayout.RESIZE_MODE_ZOOM
@@ -102,6 +122,8 @@ class PlayerActivity : ComponentActivity() {
                         }
                     },
                     onPip = { enterPip() },
+                    onCycleSleep = { cycleSleepTimer() },
+                    onCancelAutoNext = { cancelAutoNext() },
                 )
             }
         }
@@ -116,20 +138,80 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun loadFromIntent(intent: Intent) {
-        val channelId = intent.getStringExtra(PlayerLauncher.EXTRA_CHANNEL) ?: return finish()
-        val queueIds = intent.getStringArrayListExtra(PlayerLauncher.EXTRA_QUEUE) ?: arrayListOf(channelId)
-        val stream = intent.getIntExtra(PlayerLauncher.EXTRA_STREAM, 0)
+        applyQualityLimits()
+        val movieId = intent.getStringExtra(PlayerLauncher.EXTRA_MOVIE)
+        val channelId = intent.getStringExtra(PlayerLauncher.EXTRA_CHANNEL)
+        if (movieId == null && channelId == null) return finish()
 
         app.ensureCatalog()
         lifecycleScope.launch {
             val index = app.catalog.filterIsInstance<CatalogState.Ready>().first().index
             ui.index = index
-            val queue = queueIds.mapNotNull(index.byId::get).ifEmpty { listOfNotNull(index.byId[channelId]) }
-            if (queue.isEmpty()) return@launch finish()
-            ui.queue = queue
-            tuneQueue(queue.indexOfFirst { it.id == channelId }.coerceAtLeast(0), stream)
+            if (movieId != null) {
+                val movie = index.movieById[movieId] ?: return@launch finish()
+                playMovie(movie, intent.getBooleanExtra(PlayerLauncher.EXTRA_FROM_START, false))
+            } else {
+                val queueIds = intent.getStringArrayListExtra(PlayerLauncher.EXTRA_QUEUE) ?: arrayListOf(channelId!!)
+                val queue = queueIds.mapNotNull(index.byId::get).ifEmpty { listOfNotNull(index.byId[channelId]) }
+                if (queue.isEmpty()) return@launch finish()
+                ui.movie = null
+                ui.queue = queue
+                tuneQueue(queue.indexOfFirst { it.id == channelId }.coerceAtLeast(0), intent.getIntExtra(PlayerLauncher.EXTRA_STREAM, 0))
+            }
         }
     }
+
+    /** Data saver: keep adaptive streams around 480p and modest bitrates. */
+    private fun applyQualityLimits() {
+        ui.dataSaver = app.settings.savingData()
+        val params = trackSelector.buildUponParameters()
+        if (ui.dataSaver) params.setMaxVideoSize(854, 480).setMaxVideoBitrate(900_000)
+        else params.clearVideoSizeConstraints().setMaxVideoBitrate(Int.MAX_VALUE)
+        trackSelector.setParameters(params)
+    }
+
+    // ---------------------------------------------------------------- movies
+
+    private fun playMovie(movie: Movie, fromStart: Boolean) {
+        saveMovieProgress()
+        cancelAutoNext()
+        watchdog?.cancel()
+        ui.movie = movie
+        ui.channel = null
+        ui.queue = emptyList()
+        ui.phase = PlayerPhase.Tuning
+        app.prefs.markWatched(movie.listKey)
+
+        val url = if (ui.dataSaver) movie.lowUrl ?: movie.url else movie.url
+        val item = MediaItem.Builder()
+            .setUri(url)
+            .setMimeType(MimeTypes.VIDEO_MP4)
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(movie.title).build())
+            .build()
+        val resumeAt = if (fromStart) 0L else app.prefs.positionOf(movie.id)
+        player.stop()
+        player.setMediaSource(DefaultMediaSourceFactory(OkHttpDataSource.Factory(app.http)).createMediaSource(item), resumeAt)
+        player.prepare()
+        player.playWhenReady = true
+
+        // Remember the position every few seconds so "Continue watching" survives crashes and kills
+        progressJob?.cancel()
+        progressJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(5_000)
+                saveMovieProgress()
+            }
+        }
+    }
+
+    private fun saveMovieProgress() {
+        val movie = ui.movie ?: return
+        if (!::player.isInitialized) return
+        val duration = player.duration.takeIf { it > 0 } ?: (movie.lengthSeconds * 1000L)
+        if (duration > 0) app.prefs.savePosition(movie.id, player.currentPosition, duration)
+    }
+
+    // ---------------------------------------------------------------- live channels
 
     private fun zap(step: Int) {
         val size = ui.queue.size
@@ -137,8 +219,14 @@ class PlayerActivity : ComponentActivity() {
         tuneQueue(((ui.queueIndex + step) % size + size) % size, 0)
     }
 
+    private fun retry() {
+        val movie = ui.movie
+        if (movie != null) playMovie(movie, fromStart = false) else tuneQueue(ui.queueIndex, 0)
+    }
+
     private fun tuneQueue(queueIndex: Int, streamIndex: Int) {
         val channel = ui.queue.getOrNull(queueIndex) ?: return
+        cancelAutoNext()
         ui.queueIndex = queueIndex
         ui.channel = channel
         app.prefs.markWatched(channel.id)
@@ -146,7 +234,7 @@ class PlayerActivity : ComponentActivity() {
     }
 
     private fun playStream(channel: Channel, streamIndex: Int, forceHls: Boolean) {
-        val stream = channel.streams.getOrNull(streamIndex) ?: run { ui.phase = PlayerPhase.Failed; return }
+        val stream = channel.streams.getOrNull(streamIndex) ?: run { failed(); return }
         ui.streamIndex = streamIndex
         ui.phase = PlayerPhase.Tuning
         forcedHls = forceHls
@@ -165,7 +253,7 @@ class PlayerActivity : ComponentActivity() {
                     stream.url.contains(".mpd", ignoreCase = true) -> setMimeType(MimeTypes.APPLICATION_MPD)
                 }
             }
-            .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(channel.name).build())
+            .setMediaMetadata(MediaMetadata.Builder().setTitle(channel.name).build())
             .build()
 
         player.stop()
@@ -183,7 +271,7 @@ class PlayerActivity : ComponentActivity() {
 
     /** Try the same channel's next source; when none are left, show the error state. */
     private fun nextSource(userInitiated: Boolean) {
-        val channel = ui.channel ?: return
+        val channel = ui.channel ?: return failed()
         val stream = channel.streams.getOrNull(ui.streamIndex)
         // Extension-less URLs are often HLS anyway: retry once as HLS before giving up on the source
         if (!userInitiated && !forcedHls && stream != null && !stream.url.contains(".m3u8", true) && !stream.url.contains(".mpd", true)) {
@@ -194,19 +282,67 @@ class PlayerActivity : ComponentActivity() {
         when {
             next < channel.streams.size -> playStream(channel, next, forceHls = false)
             userInitiated && channel.streams.size > 1 -> playStream(channel, 0, forceHls = false)
-            else -> {
-                watchdog?.cancel()
-                player.stop()
-                ui.phase = PlayerPhase.Failed
+            else -> failed()
+        }
+    }
+
+    private fun failed() {
+        watchdog?.cancel()
+        player.stop()
+        ui.phase = PlayerPhase.Failed
+        // Autoplay: count down, then hop to the next channel
+        if (ui.movie == null && app.settings.autoplayNext.value && ui.queue.size > 1) {
+            autoNextJob?.cancel()
+            autoNextJob = lifecycleScope.launch {
+                for (s in AUTO_NEXT_SECONDS downTo 1) {
+                    ui.autoNextIn = s
+                    delay(1_000)
+                }
+                ui.autoNextIn = 0
+                zap(+1)
             }
+        }
+    }
+
+    private fun cancelAutoNext() {
+        autoNextJob?.cancel()
+        autoNextJob = null
+        ui.autoNextIn = 0
+    }
+
+    // ---------------------------------------------------------------- sleep timer
+
+    /** Off → 15 → 30 → 60 → 90 min → off. */
+    private fun cycleSleepTimer() {
+        val remainingMin = if (ui.sleepAt == 0L) 0 else ((ui.sleepAt - System.currentTimeMillis()) / 60_000).toInt() + 1
+        val next = SLEEP_STEPS.firstOrNull { it > remainingMin }
+        sleepJob?.cancel()
+        if (next == null) {
+            ui.sleepAt = 0L
+            return
+        }
+        ui.sleepAt = System.currentTimeMillis() + next * 60_000L
+        sleepJob = lifecycleScope.launch {
+            delay(ui.sleepAt - System.currentTimeMillis())
+            ui.sleepAt = 0L
+            saveMovieProgress()
+            player.pause()
+            finish()
         }
     }
 
     private val listener = object : Player.Listener {
         override fun onPlaybackStateChanged(playbackState: Int) {
-            if (playbackState == Player.STATE_READY) {
-                ui.phase = PlayerPhase.Playing
-                watchdog?.cancel()
+            when (playbackState) {
+                Player.STATE_READY -> {
+                    ui.phase = PlayerPhase.Playing
+                    watchdog?.cancel()
+                }
+                Player.STATE_ENDED -> if (ui.movie != null) {
+                    saveMovieProgress()
+                    finish()
+                }
+                else -> Unit
             }
         }
 
@@ -220,6 +356,10 @@ class PlayerActivity : ComponentActivity() {
             if (error.errorCode == PlaybackException.ERROR_CODE_BEHIND_LIVE_WINDOW) {
                 player.seekToDefaultPosition()
                 player.prepare()
+                return
+            }
+            if (ui.movie != null) {
+                ui.phase = PlayerPhase.Failed
                 return
             }
             nextSource(userInitiated = false)
@@ -274,12 +414,17 @@ class PlayerActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        saveMovieProgress()
         // Closing the PiP window stops the activity; keep playing only while visible in PiP
         if (!isInPictureInPictureMode) player.pause()
     }
 
     override fun onDestroy() {
+        saveMovieProgress()
         watchdog?.cancel()
+        autoNextJob?.cancel()
+        sleepJob?.cancel()
+        progressJob?.cancel()
         player.removeListener(listener)
         player.release()
         super.onDestroy()
@@ -295,6 +440,8 @@ class PlayerActivity : ComponentActivity() {
 
     private companion object {
         const val TUNE_TIMEOUT_MS = 15_000L
+        const val AUTO_NEXT_SECONDS = 5
+        val SLEEP_STEPS = listOf(15, 30, 60, 90)
         const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"
     }

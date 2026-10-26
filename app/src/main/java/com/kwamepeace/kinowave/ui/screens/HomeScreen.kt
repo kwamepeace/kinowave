@@ -43,13 +43,25 @@ import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.ui.Actions
 import com.kwamepeace.kinowave.ui.AppViewModel
 import com.kwamepeace.kinowave.ui.HomeFilter
+import com.kwamepeace.kinowave.ui.HomeRow
+import com.kwamepeace.kinowave.ui.resolve
+import com.kwamepeace.kinowave.data.Channel
+import com.kwamepeace.kinowave.data.Movie
+import com.kwamepeace.kinowave.data.Profile
+import androidx.compose.foundation.layout.width
 import com.kwamepeace.kinowave.ui.Route
 import com.kwamepeace.kinowave.ui.components.FilterChipK
 import com.kwamepeace.kinowave.ui.components.HeroCarousel
 import com.kwamepeace.kinowave.ui.components.PosterRow
 import com.kwamepeace.kinowave.ui.components.Top10Row
-import com.kwamepeace.kinowave.ui.components.WideRow
+import com.kwamepeace.kinowave.ui.components.ContinueWatchingRow
+import com.kwamepeace.kinowave.ui.components.MoviePoster
+import com.kwamepeace.kinowave.ui.components.MoviePosterRow
+import com.kwamepeace.kinowave.ui.components.PosterCard
+import com.kwamepeace.kinowave.ui.components.SectionHeader
+import com.kwamepeace.kinowave.ui.components.Watchable
 import com.kwamepeace.kinowave.ui.components.bouncyClick
+import com.kwamepeace.kinowave.ui.screens.ProfileAvatar
 import com.kwamepeace.kinowave.ui.theme.Display
 import com.kwamepeace.kinowave.ui.theme.Kino
 
@@ -60,11 +72,15 @@ fun HomeScreen(
     actions: Actions,
     onSearch: () -> Unit,
     onCategories: () -> Unit,
+    onProfile: () -> Unit,
 ) {
+    val profile by vm.activeProfile.collectAsStateWithLifecycle()
     val home by vm.home.collectAsStateWithLifecycle()
     val filter by vm.homeFilter.collectAsStateWithLifecycle()
     val myList by vm.prefs.myList.collectAsStateWithLifecycle()
     val recents by vm.prefs.recents.collectAsStateWithLifecycle()
+    val progress by vm.prefs.progress.collectAsStateWithLifecycle()
+    val dataSaver by vm.settings.dataSaver.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
     val barAlpha by remember {
         derivedStateOf {
@@ -72,86 +88,122 @@ fun HomeScreen(
             else (listState.firstVisibleItemScrollOffset / 300f).coerceIn(0f, 1f)
         }
     }
-    val flagOf = { ch: com.kwamepeace.kinowave.data.Channel -> index.countryFlag(ch.country) }
+    val flagOf = { ch: Channel -> index.countryFlag(ch.country) }
+    val progressOf = { m: Movie -> progress[m.id]?.let { (pos, dur) -> if (dur > 0) pos.toFloat() / dur else null } }
 
     Box(Modifier.fillMaxSize()) {
         LaunchedEffect(filter) { listState.scrollToItem(0) }
         LazyColumn(
-                state = listState,
-                contentPadding = PaddingValues(bottom = 120.dp),
-                verticalArrangement = Arrangement.spacedBy(28.dp),
-            ) {
-                item(key = "top-space") {
-                    Spacer(Modifier.statusBarsPadding().height(112.dp))
-                }
-                item(key = "hero") {
-                    HeroCarousel(
-                        items = home.hero,
-                        inMyList = { it.id in myList },
-                        flagOf = flagOf,
-                        onPlay = { ch -> actions.play(ch, home.hero.map { it.second }) },
-                        onOpen = actions.open,
-                        onToggleList = actions.toggleList,
-                    )
-                }
-                val recentChannels = recents.mapNotNull(index.byId::get)
-                if (recentChannels.isNotEmpty() && filter == HomeFilter.All) {
-                    item(key = "recents") {
-                        WideRow(
-                            "Continue watching",
-                            recentChannels,
-                            emoji = "⏯️",
-                            onOpen = actions.open,
-                            onPlay = { actions.play(it, recentChannels) },
-                        )
-                    }
-                }
-                if (home.top10.size >= 5) {
-                    item(key = "top10") {
-                        val region = home.regionCode
-                        Top10Row(
-                            if (region != null) "Top 10 in ${index.countryName(region)} ${index.countryFlag(region)}" else "Top 10 Movie Channels",
-                            home.top10,
-                            onOpen = actions.open,
-                            onPlay = { actions.play(it, home.top10) },
-                        )
-                    }
-                }
-                val saved = myList.mapNotNull(index.byId::get)
-                if (saved.isNotEmpty() && filter == HomeFilter.All) {
-                    item(key = "mylist") {
-                        PosterRow(
-                            "My List",
-                            saved,
-                            emoji = "💜",
-                            flagOf = flagOf,
-                            onOpen = actions.open,
-                            onPlay = { actions.play(it, saved) },
-                        )
-                    }
-                }
-                items(home.rows, key = { it.first.id }) { (col, list) ->
-                    PosterRow(
-                        modifier = Modifier.animateItem(),
-                        title = col.title,
-                        channels = list,
-                        emoji = col.emoji,
-                        subtitle = col.subtitle,
-                        flagOf = flagOf,
-                        onOpen = actions.open,
-                        onPlay = { actions.play(it, list) },
-                        onSeeAll = { actions.push(Route.CollectionRoute(col.id)) },
-                    )
-                }
-                item(key = "footer") {
-                    Text(
-                        "Streams from the open-source iptv-org project.\nKinoWave doesn't host any video.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = Kino.TextLow,
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+            state = listState,
+            contentPadding = PaddingValues(bottom = 120.dp),
+            verticalArrangement = Arrangement.spacedBy(28.dp),
+        ) {
+            item(key = "top-space") {
+                Spacer(Modifier.statusBarsPadding().height(112.dp))
+            }
+            item(key = "hero") {
+                HeroCarousel(
+                    items = home.hero,
+                    saved = { item -> (item.movie?.listKey ?: item.channel?.id) in myList },
+                    flagOf = index::countryFlag,
+                    lightweight = dataSaver,
+                    onPlay = { item ->
+                        item.movie?.let(actions.playMovie)
+                            ?: item.channel?.let { ch -> actions.play(ch, home.hero.mapNotNull { it.channel }) }
+                    },
+                    onOpen = { item -> item.movie?.let(actions.openMovie) ?: item.channel?.let(actions.open) },
+                    onToggleList = { item ->
+                        item.movie?.let { vm.toggleMyList(it) } ?: item.channel?.let(actions.toggleList)
+                    },
+                )
+            }
+            val continueItems = index.resolve(recents, progress)
+            if (continueItems.isNotEmpty() && filter != HomeFilter.Tv) {
+                item(key = "recents") {
+                    ContinueWatchingRow(
+                        continueItems,
+                        onOpen = actions::openItem,
+                        onPlay = { actions.playItem(it, continueItems) },
                     )
                 }
             }
+            if (home.top10.size >= 5) {
+                item(key = "top10") {
+                    val region = home.regionCode
+                    Top10Row(
+                        if (region != null) "Top 10 in ${index.countryName(region)} ${index.countryFlag(region)}" else "Top 10 Today",
+                        home.top10,
+                        onOpen = actions.open,
+                        onPlay = { actions.play(it, home.top10) },
+                    )
+                }
+            }
+            val saved = index.resolve(myList)
+            if (saved.isNotEmpty() && filter == HomeFilter.All) {
+                item(key = "mylist") {
+                    Column {
+                        SectionHeader("My List", emoji = "💜")
+                        Spacer(Modifier.height(12.dp))
+                        LazyRow(
+                            contentPadding = PaddingValues(horizontal = 20.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            items(saved, key = { it.key }) { item ->
+                                when (item) {
+                                    is Watchable.Live -> PosterCard(
+                                        item.channel,
+                                        flag = flagOf(item.channel),
+                                        onLongClick = { actions.playItem(item, saved) },
+                                        onClick = { actions.openItem(item) },
+                                    )
+                                    is Watchable.Film -> MoviePoster(
+                                        item.movie,
+                                        progress = progressOf(item.movie),
+                                        onLongClick = { actions.playItem(item, saved) },
+                                        onClick = { actions.openItem(item) },
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            items(home.rows, key = { it.key }) { row ->
+                when (row) {
+                    is HomeRow.Channels -> PosterRow(
+                        modifier = Modifier.animateItem(),
+                        title = row.collection.title,
+                        channels = row.channels,
+                        emoji = row.collection.emoji,
+                        subtitle = row.collection.subtitle,
+                        flagOf = flagOf,
+                        onOpen = actions.open,
+                        onPlay = { actions.play(it, row.channels) },
+                        onSeeAll = { actions.push(Route.CollectionRoute(row.collection.id)) },
+                    )
+                    is HomeRow.Movies -> MoviePosterRow(
+                        modifier = Modifier.animateItem(),
+                        title = row.row.title,
+                        movies = row.movies,
+                        emoji = row.row.emoji,
+                        subtitle = "Free classic movies · on demand",
+                        progressOf = progressOf,
+                        onOpen = actions.openMovie,
+                        onPlay = actions.playMovie,
+                        onSeeAll = { actions.push(Route.MovieRowRoute(row.row.id)) },
+                    )
+                }
+            }
+            item(key = "footer") {
+                Text(
+                    "Live channels from the open-source iptv-org project. Movies from the Internet Archive's public-domain collection.
+KinoWave doesn't host any video.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Kino.TextLow,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                )
+            }
+        }
 
         HomeTopBar(
             filter = filter,
@@ -159,6 +211,8 @@ fun HomeScreen(
             onFilter = { vm.homeFilter.value = it },
             onSearch = onSearch,
             onCategories = onCategories,
+            profile = profile,
+            onProfile = onProfile,
         )
     }
 }
@@ -170,6 +224,8 @@ private fun HomeTopBar(
     onFilter: (HomeFilter) -> Unit,
     onSearch: () -> Unit,
     onCategories: () -> Unit,
+    profile: Profile?,
+    onProfile: () -> Unit,
 ) {
     Column(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth()) {
@@ -204,6 +260,10 @@ private fun HomeTopBar(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(Icons.Rounded.Search, "Search", tint = Color.White)
+                    }
+                    if (profile != null) {
+                        Spacer(Modifier.width(8.dp))
+                        ProfileAvatar(profile, size = 44.dp, modifier = Modifier.bouncyClick(onClick = onProfile))
                     }
                 }
                 LazyRow(

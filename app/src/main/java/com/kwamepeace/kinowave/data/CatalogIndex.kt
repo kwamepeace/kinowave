@@ -14,6 +14,19 @@ class CatalogIndex(val catalog: Catalog) {
 
     val collectionById: Map<String, Pair<Collection, List<Channel>>> = rows.associateBy { it.first.id }
 
+    val movies: List<Movie> = catalog.movies
+    val movieById: Map<String, Movie> = movies.associateBy { it.id }
+
+    /** On-demand movie rows with their films resolved. */
+    val movieRows: List<Pair<MovieRow, List<Movie>>> =
+        catalog.movieRows.map { row -> row to row.ids.mapNotNull(movieById::get) }.filter { it.second.isNotEmpty() }
+
+    val movieRowById: Map<String, Pair<MovieRow, List<Movie>>> = movieRows.associateBy { it.first.id }
+
+    /** Whether this index was filtered for a Kids profile. */
+    var isKids: Boolean = false
+        private set
+
     /** Countries that have channels, most channels first. */
     val countryCounts: List<Pair<String, Int>> =
         channels.groupingBy { it.country }.eachCount().toList().sortedByDescending { it.second }
@@ -68,6 +81,43 @@ class CatalogIndex(val catalog: Catalog) {
             scored += ch to (ch.score + bonus)
         }
         return scored.sortedByDescending { it.second }.take(limit).map { it.first }
+    }
+
+    fun searchMovies(query: String, limit: Int = 60): List<Movie> {
+        val terms = query.normalized().split(' ').filter { it.isNotBlank() }
+        if (terms.isEmpty()) return emptyList()
+        return movies.filter { m ->
+            val hay = "${m.title} ${m.year ?: ""} ${m.tags.joinToString(" ")} ${m.description.orEmpty().take(120)}".normalized()
+            terms.all { hay.contains(it) }
+        }.take(limit)
+    }
+
+    /** Films that share a row with [movie]. */
+    fun similarMovies(movie: Movie, limit: Int = 18): List<Movie> =
+        movieRows.filter { (_, list) -> list.any { it.id == movie.id } }
+            .flatMap { it.second }.distinctBy { it.id }.filter { it.id != movie.id }.take(limit)
+
+    /**
+     * A copy of this index containing only kids-safe content: kids/animation/family channels,
+     * the Kids and Anime rows, and the cartoon movie rows.
+     */
+    fun forKids(): CatalogIndex {
+        val kidsCategories = setOf("kids", "animation", "family")
+        val safe = channels.filter { ch -> ch.categories.any { it in kidsCategories } && "religious" !in ch.categories }
+        val safeIds = safe.map { it.id }.toHashSet()
+        val cols = catalog.collections
+            .filter { it.id == "kids" || it.id == "anime" }
+            .map { col -> col.copy(ids = col.ids.filter { it in safeIds }) }
+        val kidsRows = catalog.movieRows.filter { it.kids }
+        val kidsMovieIds = kidsRows.flatMap { it.ids }.toHashSet()
+        return CatalogIndex(
+            catalog.copy(
+                channels = safe,
+                collections = cols,
+                movieRows = kidsRows,
+                movies = catalog.movies.filter { it.id in kidsMovieIds },
+            ),
+        ).also { it.isKids = true }
     }
 
     fun byCountry(code: String) = channels.filter { it.country == code }

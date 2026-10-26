@@ -12,6 +12,52 @@ data class Catalog(
     val languages: Map<String, String> = emptyMap(),
     val collections: List<Collection> = emptyList(),
     val channels: List<Channel> = emptyList(),
+    val movies: List<Movie> = emptyList(),
+    val movieRows: List<MovieRow> = emptyList(),
+)
+
+/** A public-domain film from the Internet Archive, playable on demand. */
+@Immutable
+@Serializable
+data class Movie(
+    val id: String,
+    @SerialName("t") val title: String,
+    @SerialName("u") val url: String,
+    /** ~240p copy used by data saver. */
+    @SerialName("lu") val lowUrl: String? = null,
+    @SerialName("p") val poster: String? = null,
+    /** A frame from the film, used as a backdrop. */
+    @SerialName("b") val still: String? = null,
+    @SerialName("y") val year: Int? = null,
+    @SerialName("len") val lengthSeconds: Int = 0,
+    @SerialName("d") val description: String? = null,
+    @SerialName("g") val tags: List<String> = emptyList(),
+) {
+    /** Key used in My List / history so movies and channels can share one list. */
+    val listKey: String get() = MOVIE_PREFIX + id
+
+    val runtimeLabel: String?
+        get() = lengthSeconds.takeIf { it > 0 }?.let { s ->
+            val h = s / 3600
+            val m = (s % 3600) / 60
+            if (h > 0) "${h}h ${m}m" else "${m}m"
+        }
+
+    companion object {
+        const val MOVIE_PREFIX = "m:"
+    }
+}
+
+@Immutable
+@Serializable
+data class MovieRow(
+    val id: String,
+    val title: String,
+    val emoji: String = "",
+    val colors: List<String> = emptyList(),
+    val ids: List<String> = emptyList(),
+    /** Suitable for Kids profiles. */
+    val kids: Boolean = false,
 )
 
 @Immutable

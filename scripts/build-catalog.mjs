@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Builds the compact KinoWave catalog from the iptv-org API (https://github.com/iptv-org/api).
 //
-//   node scripts/build-catalog.mjs [--api <dir with api json files>] [--out <file>]...
+//   node scripts/build-catalog.mjs [--api <dir with api json files>] [--out <file>]... [--no-movies]
 //
 // Without --api the JSON files are downloaded from https://iptv-org.github.io/api.
 // Default output: app/src/main/assets/catalog.json
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { buildMovies } from './archive-movies.mjs';
 
 const API_BASE = 'https://iptv-org.github.io/api';
 
@@ -300,6 +301,8 @@ for (const col of COLLECTIONS) {
 
 // ---------------------------------------------------------------- write
 
+const { movies, movieRows } = args.includes('--no-movies') ? { movies: [], movieRows: [] } : await buildMovies();
+
 const usedCountries = new Set(out.map((c) => c.c));
 const usedLanguages = new Set(out.flatMap((c) => c.la ?? []));
 const catalog = {
@@ -310,6 +313,8 @@ const catalog = {
   languages: Object.fromEntries(languages.filter((l) => usedLanguages.has(l.code)).map((l) => [l.code, l.name])),
   collections,
   channels: out,
+  movies,
+  movieRows,
 };
 
 const json = JSON.stringify(catalog);

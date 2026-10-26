@@ -7,6 +7,8 @@ import coil3.SingletonImageLoader
 import coil3.request.crossfade
 import com.kwamepeace.kinowave.data.CatalogIndex
 import com.kwamepeace.kinowave.data.CatalogRepository
+import com.kwamepeace.kinowave.data.AppSettings
+import com.kwamepeace.kinowave.data.ProfileStore
 import com.kwamepeace.kinowave.data.UserPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,7 +39,17 @@ class KinoApp : Application(), SingletonImageLoader.Factory {
             .build()
     }
     val catalogRepository by lazy { CatalogRepository(this, http) }
-    val prefs by lazy { UserPrefs(this) }
+    val profiles by lazy { ProfileStore(this) }
+    val settings by lazy { AppSettings(this) }
+
+    private val prefsCache = HashMap<String, UserPrefs>()
+
+    /** My List, history and settings of the active profile (the main profile until one is picked). */
+    val prefs: UserPrefs
+        get() = prefsFor(profiles.active.value?.id ?: ProfileStore.MAIN_PROFILE_ID)
+
+    @Synchronized
+    fun prefsFor(profileId: String): UserPrefs = prefsCache.getOrPut(profileId) { UserPrefs(this, profileId) }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val _catalog = MutableStateFlow<CatalogState>(CatalogState.Loading)
@@ -52,7 +64,10 @@ class KinoApp : Application(), SingletonImageLoader.Factory {
             runCatching { CatalogIndex(catalogRepository.loadLocal()) }
                 .onSuccess { _catalog.value = CatalogState.Ready(it) }
                 .onFailure { _catalog.value = CatalogState.Failed(it.message ?: "Couldn't load channels") }
-            catalogRepository.refresh()?.let { _catalog.value = CatalogState.Ready(CatalogIndex(it)) }
+            // The catalog is a few MB; don't pull it over mobile data when the viewer is saving data
+            if (!settings.savingData()) {
+                catalogRepository.refresh()?.let { _catalog.value = CatalogState.Ready(CatalogIndex(it)) }
+            }
         }
     }
 
