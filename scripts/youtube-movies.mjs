@@ -54,6 +54,12 @@ async function get(path, params, key) {
   for (let attempt = 1; ; attempt++) {
     const res = await fetch(url);
     if (res.ok) return res.json();
+    if (res.status === 401) {
+      throw new Error(
+        'HTTP 401: Google rejected the key. Create a plain API key (Credentials → Create credentials → API key, ' +
+          'without "Authenticate API calls through a service account") and save it as YOUTUBE_API_KEY.',
+      );
+    }
     if (attempt >= 3 || res.status === 403 || res.status === 400) {
       throw new Error(`${path} HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);
     }
@@ -147,6 +153,10 @@ export async function buildYouTubeMovies(log = console.log) {
   if (!key) {
     log('YouTube: no YOUTUBE_API_KEY set, skipping studio movies');
     return { movies: [], movieRows: [] };
+  }
+  // Never print the key itself, only whether it has the shape of a standard Google API key
+  if (!/^AIza[\w-]{35}$/.test(key.trim())) {
+    log(`YouTube: YOUTUBE_API_KEY doesn't look like a standard API key (expected "AIza…", 39 characters; got ${key.trim().length} characters)`);
   }
   const movies = [];
   const movieRows = [];
