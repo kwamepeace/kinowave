@@ -9,6 +9,7 @@
     <style name="Theme.KinoWave.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/ink</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_launcher_foreground</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/lime</item>
         <item name="postSplashScreenTheme">@style/Theme.KinoWave</item>
     </style>
 
