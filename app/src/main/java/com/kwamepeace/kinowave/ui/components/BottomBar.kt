@@ -12,7 +12,11 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.tappableElement
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -51,7 +55,7 @@ fun FloatingTabBar(selected: Tab, onSelect: (Tab) -> Unit, modifier: Modifier = 
     val shape = RoundedCornerShape(50)
     Row(
         modifier
-            .navigationBarsPadding()
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.tappableElement))
             .padding(bottom = 10.dp)
             .shadow(24.dp, shape, ambientColor = Color.Black, spotColor = Color.Black)
             .clip(shape)

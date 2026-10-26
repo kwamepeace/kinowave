@@ -51,7 +51,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.graphics.Bitmap
 import coil3.compose.AsyncImage
+import coil3.compose.LocalPlatformContext
+import coil3.request.ImageRequest
+import coil3.request.allowHardware
+import coil3.toBitmap
+import java.util.concurrent.ConcurrentHashMap
 import com.kwamepeace.kinowave.data.Channel
 import com.kwamepeace.kinowave.ui.theme.Display
 import com.kwamepeace.kinowave.ui.theme.Kino
@@ -106,9 +112,16 @@ fun Modifier.bouncyClick(
         )
 }
 
+/** Logo URL → whether it needs a dark tile, so each logo is only analysed once per session. */
+private val darkTileCache = ConcurrentHashMap<String, Boolean>()
+
+private val LightTile = Brush.linearGradient(listOf(Color(0xFFF7F7FB), Color(0xFFE4E4EE)))
+private val DarkTile = Brush.linearGradient(listOf(Color(0xFF2B2B38), Color(0xFF15151D)))
+
 /**
- * Channel logo on a soft light tile (most iptv-org logos are drawn for light backgrounds),
- * falling back to a monogram when there is no logo or it fails to load.
+ * Channel logo on a soft tile, falling back to a monogram when there is no logo or it fails to load.
+ * Most iptv-org logos are drawn for light backgrounds; mostly-white logos on transparent backgrounds
+ * (Pluto, OuterSphere...) are detected after loading and get a dark tile instead.
  */
 @Composable
 fun ChannelLogo(
@@ -117,11 +130,22 @@ fun ChannelLogo(
     shape: Shape = RoundedCornerShape(18.dp),
     padding: Dp = 10.dp,
 ) {
-    var failed by remember(channel.logo) { mutableStateOf(channel.logo == null) }
+    val url = channel.logo
+    var failed by remember(url) { mutableStateOf(url == null) }
+    var dark by remember(url) { mutableStateOf(url?.let(darkTileCache::get) ?: false) }
+    val context = LocalPlatformContext.current
+    // Software bitmaps so the pixels can be sampled; logos are small so the cost is negligible
+    val request = remember(url) { ImageRequest.Builder(context).data(url).allowHardware(false).build() }
     Box(
         modifier
             .clip(shape)
-            .background(if (failed) Brush.linearGradient(seedColors(channel.id)) else Brush.linearGradient(listOf(Color(0xFFF7F7FB), Color(0xFFE4E4EE)))),
+            .background(
+                when {
+                    failed -> Brush.linearGradient(seedColors(channel.id))
+                    dark -> DarkTile
+                    else -> LightTile
+                },
+            ),
         contentAlignment = Alignment.Center,
     ) {
         if (failed) {
@@ -135,14 +159,41 @@ fun ChannelLogo(
             )
         } else {
             AsyncImage(
-                model = channel.logo,
+                model = request,
                 contentDescription = channel.name,
                 contentScale = ContentScale.Fit,
                 onError = { failed = true },
+                onSuccess = { state ->
+                    if (url != null && url !in darkTileCache) {
+                        val needsDark = runCatching { needsDarkTile(state.result.image.toBitmap()) }.getOrDefault(false)
+                        darkTileCache[url] = needsDark
+                        dark = needsDark
+                    }
+                },
                 modifier = Modifier.fillMaxSize().padding(padding),
             )
         }
     }
+}
+
+/** True when the logo is mostly light pixels on a largely transparent background. */
+private fun needsDarkTile(bitmap: Bitmap): Boolean {
+    val step = (minOf(bitmap.width, bitmap.height) / 24).coerceAtLeast(1)
+    var total = 0
+    var opaque = 0
+    var luminance = 0.0
+    for (y in 0 until bitmap.height step step) {
+        for (x in 0 until bitmap.width step step) {
+            val c = bitmap.getPixel(x, y)
+            total++
+            if (android.graphics.Color.alpha(c) < 140) continue
+            opaque++
+            luminance += (0.2126 * android.graphics.Color.red(c) + 0.7152 * android.graphics.Color.green(c) + 0.0722 * android.graphics.Color.blue(c)) / 255.0
+        }
+    }
+    if (opaque == 0 || total == 0) return false
+    val transparentShare = 1.0 - opaque.toDouble() / total
+    return transparentShare > 0.15 && luminance / opaque > 0.72
 }
 
 private fun monogram(name: String): String =

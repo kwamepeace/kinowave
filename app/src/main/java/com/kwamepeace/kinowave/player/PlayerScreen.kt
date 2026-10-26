@@ -214,8 +214,8 @@ fun PlayerScreen(
                     GlassButton(Icons.Rounded.PictureInPictureAlt, "Picture in picture") { onPip() }
                 }
 
-                // Center transport
-                Row(
+                // Center transport (hidden while tuning/failed, the status overlay owns the centre then)
+                if (state.phase == PlayerPhase.Playing) Row(
                     Modifier.align(Alignment.Center),
                     horizontalArrangement = Arrangement.spacedBy(28.dp),
                     verticalAlignment = Alignment.CenterVertically,
