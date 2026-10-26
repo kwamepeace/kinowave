@@ -1,6 +1,0 @@
-{
-  "name": "KinoWave Live TV & Cinema",
-  "description": "A modern movie and live TV streaming Android & web application powered by the open-source iptv-org/iptv global M3U directory.",
-  "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}

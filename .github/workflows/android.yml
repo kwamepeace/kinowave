@@ -1,0 +1,78 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['**.md', 'site/**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      KINOWAVE_CATALOG_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/catalog.json
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Build channel catalog from iptv-org
+        run: node scripts/build-catalog.mjs --out app/src/main/assets/catalog.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: 8.11.1
+
+      - name: Decode signing key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        if: env.HAS_KEYSTORE == 'true'
+        run: |
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/kinowave.p12"
+          echo "KINOWAVE_KEYSTORE=$RUNNER_TEMP/kinowave.p12" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          KINOWAVE_KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KINOWAVE_KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KINOWAVE_KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: gradle :app:assembleRelease --stacktrace
+
+      - name: Rename APK
+        run: |
+          mkdir -p dist
+          cp app/build/outputs/apk/release/app-release.apk "dist/KinoWave-1.0.${{ github.run_number }}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: KinoWave-apk
+          path: dist/*.apk
+
+      - name: Publish GitHub release
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: KinoWave 1.0.${{ github.run_number }}
+          body: |
+            Fresh build with the latest iptv-org channels.
+            Download the APK below on your Android phone and open it to install (allow "Install unknown apps" if asked).
+          files: dist/*.apk
+          make_latest: true

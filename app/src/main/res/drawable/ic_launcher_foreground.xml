@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Play-triangle "K" with a wave underline, kept inside the 66dp adaptive icon safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M38,32 L46,32 L46,50 L62,32 L72,32 L55,51 L73,72 L63,72 L46,52 L46,72 L38,72 Z" />
+    <path
+        android:strokeColor="#C8FF2E"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"
+        android:pathData="M36,80 Q42,75 48,80 T60,80 T72,80" />
+</vector>

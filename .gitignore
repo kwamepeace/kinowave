@@ -1,9 +1,24 @@
-node_modules/
+# Gradle / Android
+.gradle/
 build/
-dist/
-coverage/
+local.properties
+*.iml
+.idea/
+.kotlin/
+captures/
+*.apk
+*.aab
+
+# Signing keys never go in the repo
+*.jks
+*.p12
+*.keystore
+
+# Generated catalog (built by scripts/build-catalog.mjs in CI)
+app/src/main/assets/catalog.json
+
+# Misc
+node_modules/
 .DS_Store
 *.log
-.env*
-!.env.example
 .aistudio/
