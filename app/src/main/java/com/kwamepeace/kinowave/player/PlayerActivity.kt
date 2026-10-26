@@ -129,6 +129,16 @@ class PlayerActivity : ComponentActivity() {
         }
 
         loadFromIntent(intent)
+
+        // Watch-time signal for the For You recommender: only counts while video is actually playing
+        lifecycleScope.launch {
+            while (isActive) {
+                delay(WATCH_TICK_SECONDS * 1000L)
+                if (player.isPlaying) {
+                    (ui.movie?.listKey ?: ui.channel?.id)?.let { app.prefs.addWatchTime(it, WATCH_TICK_SECONDS) }
+                }
+            }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -441,6 +451,7 @@ class PlayerActivity : ComponentActivity() {
     private companion object {
         const val TUNE_TIMEOUT_MS = 15_000L
         const val AUTO_NEXT_SECONDS = 5
+        const val WATCH_TICK_SECONDS = 15L
         val SLEEP_STEPS = listOf(15, 30, 60, 90)
         const val DEFAULT_USER_AGENT =
             "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36"

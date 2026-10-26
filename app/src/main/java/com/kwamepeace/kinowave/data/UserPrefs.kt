@@ -27,6 +27,10 @@ class UserPrefs(context: Context, profileId: String) {
     /** Hide channels whose every stream is geo-blocked or part-time. */
     val hideUnreliable: StateFlow<Boolean> = _hideUnreliable.asStateFlow()
 
+    /** Per item: how long, how often and how recently it was watched. Feeds the For You recommender. */
+    private val _stats = MutableStateFlow(readStats())
+    val stats: StateFlow<Map<String, WatchStat>> = _stats.asStateFlow()
+
     /** Movie id → (position ms, duration ms), for "Continue watching" progress bars. */
     private val _progress = MutableStateFlow(readProgress())
     val progress: StateFlow<Map<String, Pair<Long, Long>>> = _progress.asStateFlow()
@@ -40,7 +44,39 @@ class UserPrefs(context: Context, profileId: String) {
     fun markWatched(key: String) {
         _recents.value = (listOf(key) + _recents.value.filter { it != key }).take(MAX_RECENTS)
         writeList(KEY_RECENTS, _recents.value)
+        val old = _stats.value[key]
+        updateStat(key, WatchStat(old?.seconds ?: 0, System.currentTimeMillis(), (old?.plays ?: 0) + 1))
     }
+
+    /** Called by the player while something is actually playing. */
+    fun addWatchTime(key: String, seconds: Long) {
+        val old = _stats.value[key]
+        updateStat(key, WatchStat((old?.seconds ?: 0) + seconds, System.currentTimeMillis(), old?.plays ?: 1))
+    }
+
+    private fun updateStat(key: String, stat: WatchStat) {
+        // Keep the most recent items so the file stays small
+        _stats.value = (_stats.value + (key to stat)).entries
+            .sortedByDescending { it.value.lastWatched }
+            .take(MAX_STATS)
+            .associate { it.key to it.value }
+        prefs.edit().putString(
+            KEY_STATS,
+            _stats.value.entries.joinToString("\n") { (k, v) -> "$k|${v.seconds}|${v.lastWatched}|${v.plays}" },
+        ).apply()
+    }
+
+    private fun readStats(): Map<String, WatchStat> =
+        prefs.getString(KEY_STATS, null)?.split('\n')?.mapNotNull { line ->
+            val parts = line.split('|')
+            if (parts.size != 4) return@mapNotNull null
+            val stat = WatchStat(
+                parts[1].toLongOrNull() ?: return@mapNotNull null,
+                parts[2].toLongOrNull() ?: return@mapNotNull null,
+                parts[3].toIntOrNull() ?: return@mapNotNull null,
+            )
+            parts[0] to stat
+        }?.toMap() ?: emptyMap()
 
     fun clearRecents() {
         _recents.value = emptyList()
@@ -83,6 +119,10 @@ class UserPrefs(context: Context, profileId: String) {
         const val KEY_RECENTS = "recents"
         const val KEY_HIDE_UNRELIABLE = "hide_unreliable"
         const val KEY_PROGRESS = "movie_progress"
+        const val KEY_STATS = "watch_stats"
+        const val MAX_STATS = 200
         const val MAX_RECENTS = 30
     }
 }
+
+data class WatchStat(val seconds: Long, val lastWatched: Long, val plays: Int)

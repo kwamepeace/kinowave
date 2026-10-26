@@ -179,7 +179,8 @@ fun HomeScreen(
                         flagOf = flagOf,
                         onOpen = actions.open,
                         onPlay = { actions.play(it, row.channels) },
-                        onSeeAll = { actions.push(Route.CollectionRoute(row.collection.id)) },
+                        // Personal "fy-" rows are computed on the fly and have no full page
+                        onSeeAll = if (row.collection.id.startsWith("fy-")) null else { { actions.push(Route.CollectionRoute(row.collection.id)) } },
                     )
                     is HomeRow.Movies -> MoviePosterRow(
                         modifier = Modifier.animateItem(),
@@ -190,14 +191,13 @@ fun HomeScreen(
                         progressOf = progressOf,
                         onOpen = actions.openMovie,
                         onPlay = actions.playMovie,
-                        onSeeAll = { actions.push(Route.MovieRowRoute(row.row.id)) },
+                        onSeeAll = if (row.row.id.startsWith("fy-")) null else { { actions.push(Route.MovieRowRoute(row.row.id)) } },
                     )
                 }
             }
             item(key = "footer") {
                 Text(
-                    "Live channels from the open-source iptv-org project. Movies from the Internet Archive's public-domain collection.
-KinoWave doesn't host any video.",
+                    "Live channels from the open-source iptv-org project. Movies from the Internet Archive's public-domain collection.\nKinoWave doesn't host any video.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Kino.TextLow,
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
