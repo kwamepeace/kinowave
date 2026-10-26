@@ -136,13 +136,15 @@ class YouTubePlayerActivity : ComponentActivity() {
                     }
 
                     if (failed) {
+                        // Opaque, so YouTube's own error page underneath doesn't show through
+                        Box(Modifier.fillMaxSize().background(Kino.Ink))
                         Column(
                             Modifier.align(Alignment.Center).padding(32.dp),
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
                             Text("This movie can't play inside KinoWave", style = MaterialTheme.typography.titleLarge, color = Color.White, textAlign = TextAlign.Center)
                             Text(
-                                "The studio only allows it on YouTube itself.",
+                                "YouTube won't play this one here. You can still watch it in the YouTube app.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = Kino.TextLow,
                             )
@@ -200,7 +202,9 @@ class YouTubePlayerActivity : ComponentActivity() {
     }
 
     private fun start(videoId: String, startSeconds: Float) {
-        val options = IFramePlayerOptions.Builder()
+        // The context makes the player send the app id as its origin/referer, which YouTube now requires
+        // for embedded playback (otherwise every video fails with error 152)
+        val options = IFramePlayerOptions.Builder(this)
             .controls(1)
             .rel(0)
             .ivLoadPolicy(3)
