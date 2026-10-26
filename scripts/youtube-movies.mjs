@@ -44,6 +44,7 @@ export const YOUTUBE_ROWS = [
 const PER_CHANNEL = 25; // newest qualifying films kept per channel
 const PAGES = 4; // up to 200 recent uploads scanned per channel
 const MIN_SECONDS = 55 * 60;
+const MAX_SECONDS = 200 * 60; // longer uploads are compilations or marathons, not one film
 
 // Not films: trailers, clips, songs, series episodes, news, shorts…
 const NOT_A_MOVIE = /\b(trailer|teaser|promo|episode|ep\.? ?\d|season \d|jukebox|songs?|video song|interview|behind the scenes|bts|reaction|review|scene|clip|#shorts|news|live stream|compilation|part \d+ ?& ?\d+ teaser)\b/i;
@@ -81,13 +82,21 @@ export function cleanTitle(raw) {
   let t = decode(raw)
     .replace(/[|｜].*$/, '')
     .replace(/\s[-–—]\s.*$/, '')
-    .replace(/\((?:4k|hd|full ?hd|uhd|hindi dubbed|new|\d{4})\)/gi, '')
+    // Hindi-script titles usually carry the Latin name in brackets: "थलायवा (Thalaivaa)" → "Thalaivaa"
+    .replace(/^.*?[ऀ-ॿ].*?\(([A-Za-z][A-Za-z0-9 '&:.-]{1,40})\).*$/, '$1')
+    .replace(/\((?:4k|hd|full ?hd|uhd|hindi dubbed|new|the movie|movie|\d{4})\)/gi, '')
+    // "Tere Naam Hindi …" / "Trishakti Hindi Arshad Warsi & …": the cast list follows the language
+    .replace(/(\S)\s+hindi\b.*$/i, '$1')
     .replace(/\b(full|free|new|latest|hd|4k|uhd|hindi dubbed|dubbed|movie|movies|film|nigerian|nollywood|ghanaian|ghana|bollywood|south indian|20\d\d|19\d\d)\b/gi, ' ')
     .replace(/[#⭐🔥🏆]+/gu, ' ')
+    .replace(/\(\s*\)/g, ' ')
     .replace(/\s{2,}/g, ' ')
     .replace(/^[\s,:\-–]+|[\s,:\-–]+$/g, '')
     .trim();
   if (!t) t = decode(raw).trim();
+  // "I DID IT FOR LOVE Cynthia Clarke & Anthony Woode": an all-caps title followed by the cast's names
+  const capsTitle = /^([A-Z0-9][A-Z0-9'’!?:,. ]{2,}?)\s+[A-Z][a-z]/.exec(t);
+  if (capsTitle && capsTitle[1].trim().split(/\s+/).length >= 2) t = capsTitle[1].trim();
   // ALL CAPS titles read like shouting; switch to Title Case
   if (t === t.toUpperCase() && /[A-Z]/.test(t)) {
     t = t.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
@@ -118,7 +127,7 @@ async function channelFilms(channel, key, log) {
     for (const v of videos.items ?? []) {
       const s = v.snippet ?? {};
       const secs = isoSeconds(v.contentDetails?.duration);
-      if (secs < MIN_SECONDS) continue;
+      if (secs < MIN_SECONDS || secs > MAX_SECONDS) continue;
       if (v.status?.embeddable === false || v.status?.privacyStatus !== 'public') continue;
       if (s.liveBroadcastContent && s.liveBroadcastContent !== 'none') continue;
       if (v.contentDetails?.regionRestriction?.allowed) continue; // only plays in a few countries
@@ -132,7 +141,8 @@ async function channelFilms(channel, key, log) {
         yt: v.id,
         p: image,
         b: image,
-        y: Number(yearInTitle ?? String(s.publishedAt).slice(0, 4)) || undefined,
+        // Only a year written in the title is the film's year; the upload date often isn't (old films get re-uploaded)
+        y: yearInTitle ? Number(yearInTitle) : undefined,
         len: secs,
         d: cleanDescription(s.description),
         g: [channel.name],
