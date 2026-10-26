@@ -1,6 +1,6 @@
 # KinoWave 📺✨
 
-A Netflix-style Android app for **free live TV and 24/7 movie channels** from around the world, built natively with
+A Netflix-style Android and web app for **free live TV and 24/7 movie channels** from around the world, built natively with
 **Kotlin + Jetpack Compose** and **Media3 ExoPlayer**. Channels come from the open-source
 [iptv-org/iptv](https://github.com/iptv-org/iptv) project and are sorted into vibes: Bollywood, South Indian cinema,
 Nollywood, K-Drama, anime, horror, telenovelas, sports and more.
@@ -12,6 +12,25 @@ Every push to `main` builds a signed APK on GitHub Actions. On your phone, open 
 New versions install over the old one.
 
 No Android Studio or SDK needed. GitHub builds everything.
+
+## Watch on the web
+
+The same app runs in the browser at **https://kwamepeace.github.io/kinowave/app/**, with profiles, For You, My List,
+Discover, the Live guide and the player (server fallback, zapping with ↑/↓, sleep timer, picture-in-picture, resume
+for movies). It lives in `web/` (Vite + React + TypeScript, hls.js for live streams) and is deployed by the
+**Publish catalog + website** workflow next to `catalog.json`.
+
+Browsers can't load `http://` streams on an `https://` page, so channels that only have plain-http sources
+(about 1 in 6) are left out on the web and still play in the Android app. Some streams also refuse web players
+(no CORS headers); the player then moves on to the next server.
+
+Run it locally with Node 20+ (it reads the published catalog):
+
+```bash
+cd web
+npm install
+npm run dev
+```
 
 ## What's inside
 
@@ -44,7 +63,7 @@ Tweak the rows (titles, emoji, colors, matching rules) in the `COLLECTIONS` list
 ## Workflows
 
 - **Build Android APK** (`android.yml`): catalog → `gradle :app:assembleRelease` → artifact + GitHub Release.
-- **Publish catalog + website** (`catalog.yml`): daily catalog refresh plus a small landing page on GitHub Pages.
+- **Publish catalog + website** (`catalog.yml`): daily catalog refresh, the landing page and the web app (`/app/`) on GitHub Pages.
 
 ### Signing
 
@@ -60,6 +79,7 @@ app/src/main/java/com/kwamepeace/kinowave/
   player/     PlayerActivity (ExoPlayer, PiP) and its Compose overlay
 scripts/      build-catalog.mjs
 site/         GitHub Pages landing page
+web/          the web app (React + hls.js), served at /app/
 ```
 
 ## Disclaimer

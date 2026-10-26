@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>KinoWave</title>
   <link rel="icon" type="image/svg+xml" href="icon.svg">
-  <meta name="description" content="KinoWave: free live TV and movie channels from around the world, in a fluid Android app.">
+  <meta name="description" content="KinoWave: free live TV and movie channels from around the world, on the web and Android.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,800&family=Manrope:wght@500;700&display=swap" rel="stylesheet">
@@ -26,6 +26,7 @@
     a.btn { text-decoration: none; font-weight: 700; padding: 15px 24px; border-radius: 99px; transition: transform .2s cubic-bezier(.2,.9,.3,1.4); }
     a.btn:active { transform: scale(.95); }
     a.primary { background: #fff; color: #000; }
+    a.lime { background: var(--lime); color: #0b0b0b; }
     a.ghost { background: #ffffff14; color: #fff; border: 1px solid #ffffff22; }
     .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
     .tile { border-radius: 22px; padding: 18px; min-height: 120px; display: flex; flex-direction: column; justify-content: space-between; font-family: 'Bricolage Grotesque', sans-serif; font-weight: 800; font-size: 19px; }
@@ -40,9 +41,10 @@
     <img src="icon.svg" alt="" width="72" height="72" style="display:block;margin-bottom:20px;border-radius:18px">
     <span class="pill"><i class="dot"></i>LIVE · <span id="count">10,000+</span> CHANNELS</span>
     <h1>Kino<span>Wave</span></h1>
-    <p class="lead">Free live TV and 24/7 movie channels from every corner of the world, sorted into vibes: Bollywood, Nollywood, K-Drama, anime, horror and more. Built for Android, made to feel smooth.</p>
+    <p class="lead">Free live TV and 24/7 movie channels from every corner of the world, sorted into vibes: Bollywood, Nollywood, K-Drama, anime, horror and more. Watch right in your browser or get the Android app, made to feel smooth.</p>
     <div class="cta">
-      <a class="btn primary" id="dl" href="../releases/latest">Download for Android</a>
+      <a class="btn primary" href="app/">Watch in your browser</a>
+      <a class="btn lime" id="dl" href="../releases/latest">Download for Android</a>
       <a class="btn ghost" href="https://github.com/iptv-org/iptv">Powered by iptv-org</a>
     </div>
     <div class="grid" id="vibes"></div>

@@ -1,0 +1,11 @@
+{
+  "name": "KinoWave",
+  "short_name": "KinoWave",
+  "description": "Free live TV and movies from around the world.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#07070b",
+  "theme_color": "#07070b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}

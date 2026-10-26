@@ -5,7 +5,7 @@ on:
     - cron: '17 4 * * *'
   push:
     branches: [main]
-    paths: ['scripts/**', 'site/**', '.github/workflows/catalog.yml']
+    paths: ['scripts/**', 'site/**', 'web/**', '.github/workflows/catalog.yml']
   workflow_dispatch:
 
 permissions:
@@ -29,6 +29,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
 
       - name: Build catalog
         env:
@@ -37,6 +39,14 @@ jobs:
           mkdir -p public
           cp -r site/. public/
           node scripts/build-catalog.mjs --out public/catalog.json
+
+      # The web app is served at /app/ and reads ../catalog.json from the same site
+      - name: Build web app
+        working-directory: web
+        run: |
+          npm ci
+          npm run build
+          cp -r dist ../public/app
 
       - uses: actions/configure-pages@v5
 
