@@ -6,6 +6,7 @@ import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
 import android.util.Rational
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.annotation.OptIn
@@ -360,6 +361,14 @@ class PlayerActivity : ComponentActivity() {
             ui.isPlaying = isPlaying
             if (isPlaying) ui.phase = PlayerPhase.Playing
             updatePipParams()
+        }
+
+        override fun onEvents(player: Player, events: Player.Events) {
+            // Keep the screen awake while playing or loading; let it sleep when paused or stopped
+            val awake = player.playWhenReady &&
+                (player.playbackState == Player.STATE_READY || player.playbackState == Player.STATE_BUFFERING)
+            if (awake) window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            else window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }
 
         override fun onPlayerError(error: PlaybackException) {

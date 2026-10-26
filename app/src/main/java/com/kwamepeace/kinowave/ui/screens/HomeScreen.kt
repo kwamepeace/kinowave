@@ -187,7 +187,11 @@ fun HomeScreen(
                         title = row.row.title,
                         movies = row.movies,
                         emoji = row.row.emoji,
-                        subtitle = "Free classic movies · on demand",
+                        subtitle = when {
+                            row.row.id.startsWith("yt-") -> "New releases · free from the official studio"
+                            row.row.id.startsWith("fy-") -> null
+                            else -> "Free classic movies · on demand"
+                        },
                         progressOf = progressOf,
                         onOpen = actions.openMovie,
                         onPlay = actions.playMovie,

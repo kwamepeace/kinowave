@@ -26,7 +26,9 @@ object PlayerLauncher {
 
     /** Plays an on-demand film, resuming where this profile left off unless [fromStart]. */
     fun playMovie(context: Context, movie: Movie, fromStart: Boolean = false) {
-        val intent = Intent(context, PlayerActivity::class.java)
+        // Studio films on YouTube must play in YouTube's own embedded player
+        val target = if (movie.isYouTube) YouTubePlayerActivity::class.java else PlayerActivity::class.java
+        val intent = Intent(context, target)
             .putExtra(EXTRA_MOVIE, movie.id)
             .putExtra(EXTRA_FROM_START, fromStart)
             .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)

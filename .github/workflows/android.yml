@@ -29,6 +29,8 @@ jobs:
           node-version: 22
 
       - name: Build channel catalog from iptv-org
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: node scripts/build-catalog.mjs --out app/src/main/assets/catalog.json
 
       - uses: actions/setup-java@v4

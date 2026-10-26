@@ -1,6 +1,10 @@
 package com.kwamepeace.kinowave.ui.components
 
+import android.os.Build
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -71,12 +75,32 @@ fun MoviePoster(
             .background(Brush.linearGradient(seedColors(movie.id)))
             .border(1.dp, Color(0x22FFFFFF), shape),
     ) {
-        AsyncImage(
-            model = movie.poster ?: movie.still,
-            contentDescription = movie.title,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
+        if (movie.isYouTube) {
+            // Wide YouTube thumbnail: show it whole over a blurred, darkened copy of itself
+            AsyncImage(
+                model = movie.poster,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = 0.55f }
+                    .then(if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Modifier.blur(18.dp) else Modifier),
+            )
+            AsyncImage(
+                model = movie.poster,
+                contentDescription = movie.title,
+                contentScale = ContentScale.FillWidth,
+                modifier = Modifier.fillMaxWidth().align(Alignment.Center).offset(y = (-14).dp),
+            )
+            Pill("NEW", Modifier.align(Alignment.TopStart).padding(8.dp), background = Kino.Lime, color = Color(0xFF0B0B0B))
+        } else {
+            AsyncImage(
+                model = movie.poster ?: movie.still,
+                contentDescription = movie.title,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
         GradientScrim(
             Modifier.fillMaxWidth().height(84.dp).align(Alignment.BottomCenter),
             listOf(Color.Transparent, Color(0xE6000000)),

@@ -108,7 +108,7 @@ fun MovieSheet(
                 Column(Modifier.weight(1f)) {
                     Text(movie.title, style = MaterialTheme.typography.headlineMedium, color = Kino.TextHigh)
                     Spacer(Modifier.height(4.dp))
-                    val meta = listOfNotNull(movie.year?.toString(), movie.runtimeLabel, "Public domain")
+                    val meta = listOfNotNull(movie.year?.toString(), movie.runtimeLabel, movie.sourceLabel)
                     Text(meta.joinToString("  •  "), style = MaterialTheme.typography.bodyMedium, color = Kino.TextMid)
                 }
             }
@@ -146,7 +146,7 @@ fun MovieSheet(
                         MovieAction(Icons.Rounded.Share, "Share", Modifier.weight(1f)) {
                             val send = Intent(Intent.ACTION_SEND)
                                 .setType("text/plain")
-                                .putExtra(Intent.EXTRA_TEXT, "Watching ${movie.title} (${movie.year ?: "classic"}) free on KinoWave 🍿 https://archive.org/details/${movie.id}")
+                                .putExtra(Intent.EXTRA_TEXT, "Watching ${movie.title} (${movie.year ?: "classic"}) free on KinoWave 🍿 ${movie.shareUrl}")
                             context.startActivity(Intent.createChooser(send, "Share ${movie.title}"))
                         }
                     }
@@ -157,7 +157,8 @@ fun MovieSheet(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text(
-                    "From the Internet Archive's public-domain film collection.",
+                    if (movie.isYouTube) "Published free by ${movie.tags.firstOrNull() ?: "the studio"} on its official YouTube channel."
+                    else "From the Internet Archive's public-domain film collection.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Kino.TextLow,
                 )

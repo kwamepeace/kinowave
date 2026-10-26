@@ -34,5 +34,12 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.KinoWave.Player"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" />
+
+        <activity
+            android:name=".player.YouTubePlayerActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@style/Theme.KinoWave.Player"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode" />
     </application>
 </manifest>

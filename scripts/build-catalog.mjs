@@ -9,6 +9,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { buildMovies } from './archive-movies.mjs';
+import { buildYouTubeMovies } from './youtube-movies.mjs';
 
 const API_BASE = 'https://iptv-org.github.io/api';
 
@@ -301,7 +302,12 @@ for (const col of COLLECTIONS) {
 
 // ---------------------------------------------------------------- write
 
-const { movies, movieRows } = args.includes('--no-movies') ? { movies: [], movieRows: [] } : await buildMovies();
+const skipMovies = args.includes('--no-movies');
+const classics = skipMovies ? { movies: [], movieRows: [] } : await buildMovies();
+const studio = skipMovies ? { movies: [], movieRows: [] } : await buildYouTubeMovies();
+// New studio releases first, then the public-domain classics
+const movies = [...studio.movies, ...classics.movies];
+const movieRows = [...studio.movieRows, ...classics.movieRows];
 
 const usedCountries = new Set(out.map((c) => c.c));
 const usedLanguages = new Set(out.flatMap((c) => c.la ?? []));

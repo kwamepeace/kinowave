@@ -31,6 +31,8 @@ jobs:
           node-version: 22
 
       - name: Build catalog
+        env:
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
           mkdir -p public
           cp -r site/. public/

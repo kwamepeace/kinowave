@@ -16,13 +16,14 @@ data class Catalog(
     val movieRows: List<MovieRow> = emptyList(),
 )
 
-/** A public-domain film from the Internet Archive, playable on demand. */
+/** An on-demand film: public domain from the Internet Archive, or a studio's free upload on YouTube. */
 @Immutable
 @Serializable
 data class Movie(
     val id: String,
     @SerialName("t") val title: String,
-    @SerialName("u") val url: String,
+    /** Direct MP4 (Internet Archive films). Empty for YouTube films. */
+    @SerialName("u") val url: String = "",
     /** ~240p copy used by data saver. */
     @SerialName("lu") val lowUrl: String? = null,
     @SerialName("p") val poster: String? = null,
@@ -32,7 +33,16 @@ data class Movie(
     @SerialName("len") val lengthSeconds: Int = 0,
     @SerialName("d") val description: String? = null,
     @SerialName("g") val tags: List<String> = emptyList(),
+    /** YouTube video id for films a studio publishes on its official channel. */
+    @SerialName("yt") val youtubeId: String? = null,
 ) {
+    val isYouTube: Boolean get() = youtubeId != null
+
+    /** Where the film comes from, for detail pages. */
+    val sourceLabel: String get() = if (isYouTube) "Free on ${tags.firstOrNull() ?: "YouTube"}" else "Public domain"
+
+    val shareUrl: String get() = youtubeId?.let { "https://youtu.be/$it" } ?: "https://archive.org/details/$id"
+
     /** Key used in My List / history so movies and channels can share one list. */
     val listKey: String get() = MOVIE_PREFIX + id
 
