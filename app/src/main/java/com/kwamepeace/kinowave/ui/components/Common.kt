@@ -164,7 +164,7 @@ fun ChannelLogo(
                 contentScale = ContentScale.Fit,
                 onError = { failed = true },
                 onSuccess = { state ->
-                    if (url != null && url !in darkTileCache) {
+                    if (url != null && !darkTileCache.containsKey(url)) {
                         val needsDark = runCatching { needsDarkTile(state.result.image.toBitmap()) }.getOrDefault(false)
                         darkTileCache[url] = needsDark
                         dark = needsDark
